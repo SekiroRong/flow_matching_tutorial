@@ -250,9 +250,7 @@ class Dummy_DiT(nn.Module):
         # turn input_image into tokens [bs, C, H, W] -> [bs, dim, H, W]
         x = self.patch_embedding(x)
         grid_sizes = torch.stack([torch.tensor(u.shape[1:], dtype=torch.long) for u in x])
-        print(grid_sizes)
         x = x.flatten(2).transpose(1, 2)
-        print(x.shape)
 
         # time embeddings
         e = self.time_embedding(
@@ -267,15 +265,12 @@ class Dummy_DiT(nn.Module):
 
         for block in self.blocks:
             x = block(x, **kwargs)
-        print(x.shape)
 
         # head
         x = self.head(x, e)
-        print(x.shape)
 
         # unpatchify
         x = self.unpatchify(x, grid_sizes)
-        print(x.shape)
         return x
 
     def unpatchify(self, x, grid_sizes):

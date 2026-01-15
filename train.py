@@ -5,17 +5,22 @@ from datasets import train_loader, test_loader
 from tqdm import tqdm
 from PIL import Image
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 model = Dummy_DiT()
+model.to(device)
 optimizer = torch.optim.Adam(model.parameters(), 1e-2)
 loss_fn = nn.MSELoss()
 
 def main():
     epochs = 1
+    model.train()
     for epoch in range(epochs):
         pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Epoch [{epoch+1}/{epochs}]", leave=False)
         for i, (imgs, label) in pbar:
-            noises = torch.randn_like(imgs)
-            t = torch.rand(imgs.size(0))
+            imgs = imgs.to(device)
+            noises = torch.randn_like(imgs).to(device)
+            t = torch.rand(imgs.size(0)).to(device)
             _t = t[:, None, None, None]
             
             latents = (1 - _t) * noises + _t * imgs
@@ -31,10 +36,11 @@ def main():
             })
 
     noises = torch.randn_like(imgs[0]).unsqueeze(0)
-    n_steps = 8
+    n_steps = 20
     time_steps = torch.linspace(0, 1.0, n_steps + 1)
     latents = noises
 
+    model.eval()
     for i in range(n_steps):
         t_start=time_steps[i]
         t_end=time_steps[i + 1]

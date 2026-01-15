@@ -35,9 +35,11 @@ def main():
                 'loss': f'{loss.item():.4f}',
             })
 
-    noises = torch.randn_like(imgs[0]).unsqueeze(0)
+    torch.save(model.state_dict(), "outputs/checkpoint.pth")
+
+    noises = torch.randn_like(imgs[0]).unsqueeze(0).to(device)
     n_steps = 20
-    time_steps = torch.linspace(0, 1.0, n_steps + 1)
+    time_steps = torch.linspace(0, 1.0, n_steps + 1).to(device)
     latents = noises
 
     model.eval()
@@ -45,7 +47,7 @@ def main():
         t_start=time_steps[i]
         t_end=time_steps[i + 1]
     
-        velocity = model(latents, torch.tensor([t_start]))
+        velocity = model(latents, torch.tensor([t_start]).to(device))
         latents += velocity * (t_end - t_start)
         _latents = latents.clone().detach().squeeze()
         _latents = (_latents * 255).to(torch.uint8)

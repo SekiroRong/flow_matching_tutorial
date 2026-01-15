@@ -23,6 +23,34 @@ def rope_params(max_seq_len, dim, theta=10000):
     freqs = torch.polar(torch.ones_like(freqs), freqs)
     return freqs
 
+def rope_apply(x, grid_sizes, freqs):
+    n, c = x.size(2), x.size(3) // 2
+
+    # split freqs
+    freqs = freqs.split([c - (c // 2), c // 2], dim=1)
+
+    # loop over samples
+    output = []
+    for i, (h, w) in enumerate(grid_sizes.tolist()):
+        seq_len = h * w
+
+        # precompute multipliers
+        x_i = torch.view_as_complex(x[i, :seq_len].to(torch.float64).reshape(
+            seq_len, n, -1, 2))
+        freqs_i = torch.cat([
+            freqs[0][:h].view(1, h, 1, -1).expand(1, h, w, -1),
+            freqs[1][:w].view(1, 1, w, -1).expand(1, h, w, -1)
+        ],
+                            dim=-1).reshape(seq_len, 1, -1)
+
+        # apply rotary embedding
+        x_i = torch.view_as_real(x_i * freqs_i).flatten(2)
+        x_i = torch.cat([x_i, x[i, seq_len:]])
+
+        # append to collection
+        output.append(x_i)
+    return torch.stack(output).float()
+
 class LayerNorm(nn.LayerNorm):
 
     def __init__(self, dim, eps=1e-6, elementwise_affine=False):
@@ -34,6 +62,24 @@ class LayerNorm(nn.LayerNorm):
             x(Tensor): Shape [B, L, C]
         """
         return super().forward(x.float()).type_as(x)
+
+class RMSNorm(nn.Module):
+
+    def __init__(self, dim, eps=1e-5):
+        super().__init__()
+        self.dim = dim
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x):
+        r"""
+        Args:
+            x(Tensor): Shape [B, L, C]
+        """
+        return self._norm(x.float()).type_as(x) * self.weight
+
+    def _norm(self, x):
+        return x * torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
 
 def attention(q,
             k,
@@ -73,8 +119,8 @@ class SelfAttention(nn.Module):
         self.k = nn.Linear(dim, dim)
         self.v = nn.Linear(dim, dim)
         self.o = nn.Linear(dim, dim)
-        self.norm_q = nn.Identity()
-        self.norm_k = nn.Identity()
+        self.norm_q = RMSNorm(dim, eps=eps)
+        self.norm_k = RMSNorm(dim, eps=eps)
 
     def forward(self, x, grid_sizes, freqs):
         r"""
@@ -96,8 +142,8 @@ class SelfAttention(nn.Module):
         q, k, v = qkv_fn(x)
 
         x = attention(
-            q=q,
-            k=k,
+            q=rope_apply(q, grid_sizes, freqs),
+            k=rope_apply(k, grid_sizes, freqs),
             v=v,
             )
 
@@ -201,16 +247,16 @@ class Head(nn.Module):
         
 class Dummy_DiT(nn.Module):
     def __init__(self, 
-                 patch_size=(2, 2),
-                 num_layers=1,
-                 in_dim=1,
-                 dim=16,
-                 freq_dim=16,
-                 ffn_dim=16,
+                 patch_size=(1, 1),
+                 num_layers=4,
+                 in_dim=16,
+                 dim=32,
+                 freq_dim=64,
+                 ffn_dim=64,
                  out_dim=1,
                  qk_norm=True,
-                 num_heads=2,
-                 window_size=(-1, -1),
+                 num_heads=4,
+                 window_size=(5, 5),
                  eps=1e-6
                 ):
         super().__init__()
@@ -219,6 +265,7 @@ class Dummy_DiT(nn.Module):
         self.out_dim = out_dim
         self.patch_size = patch_size
         # embeddings
+        self.conv_in = nn.Conv2d(1, 16, kernel_size=3, padding=1)
         self.patch_embedding = nn.Conv2d(
             in_dim, dim, kernel_size=patch_size, stride=patch_size)
         self.time_embedding = nn.Sequential(
@@ -238,16 +285,18 @@ class Dummy_DiT(nn.Module):
         # calculate 2D rope params
         d = dim // num_heads
         self.freqs = torch.cat([
-            rope_params(256, d - (d // 2)),
-            rope_params(256, (d // 2))
+            rope_params(1024, d - (d // 2)),
+            rope_params(1024, (d // 2))
         ],dim=1)
 
     def forward(
         self,
         x,
         t,
+        y=None,
     ):
         # turn input_image into tokens [bs, C, H, W] -> [bs, dim, H, W]
+        x = self.conv_in(x)
         x = self.patch_embedding(x)
         grid_sizes = torch.stack([torch.tensor(u.shape[1:], dtype=torch.long) for u in x])
         x = x.flatten(2).transpose(1, 2)
@@ -303,5 +352,5 @@ class Dummy_DiT(nn.Module):
 if __name__ == "__main__":
     dummy_model = Dummy_DiT()
     dummy_input = torch.zeros((2, 1, 28, 28))
-    dummy_model(dummy_input, torch.tensor([500]))
+    dummy_model(dummy_input, torch.tensor([0.5, 0.2]))
         

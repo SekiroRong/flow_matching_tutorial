@@ -15,9 +15,10 @@ def main():
         pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Epoch [{epoch+1}/{epochs}]", leave=False)
         for i, (imgs, label) in pbar:
             noises = torch.randn_like(imgs)
-            t = torch.rand(1)
+            t = torch.rand(imgs.size(0))
+            _t = t[:, None, None, None]
             
-            latents = (1 - t) * noises + t * imgs
+            latents = (1 - _t) * noises + _t * imgs
             velocities = imgs - noises
             
             optimizer.zero_grad()
@@ -38,8 +39,8 @@ def main():
         t_start=time_steps[i]
         t_end=time_steps[i + 1]
     
-        velocity = model(latents, torch.tensor([t_start + (t_end - t_start) / 2]))
-        latents += velocity * (t_end - t_start) / 2
+        velocity = model(latents, torch.tensor([t_start]))
+        latents += velocity * (t_end - t_start)
         _latents = latents.clone().detach().squeeze()
         _latents = (_latents * 255).to(torch.uint8)
         img = Image.fromarray(_latents.cpu().numpy(), mode='L')

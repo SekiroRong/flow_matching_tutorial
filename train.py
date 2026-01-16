@@ -8,18 +8,11 @@ from PIL import Image
 import os
 import argparse
 from omegaconf import OmegaConf
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-model = Dummy_DiT()
-model.to(device)
-optimizer = torch.optim.Adam(model.parameters(), 1e-2)
-scheduler = CosineAnnealingLR(optimizer, T_max=10, eta_min=1e-4)
-loss_fn = nn.MSELoss()
+from peft import LoraConfig, get_peft_model
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_path", type=str, default="configs/default_config.yaml", required=True)
+    parser.add_argument("--config_path", type=str, default="configs/default_config.yaml")
     args = parser.parse_args()
 
     config = OmegaConf.load(args.config_path)
@@ -28,10 +21,29 @@ def main():
 
     os.makedirs("checkpoints", exist_ok=True)
     os.makedirs("outputs", exist_ok=True)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model = Dummy_DiT()
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), 1e-2)
+    scheduler = CosineAnnealingLR(optimizer, T_max=10, eta_min=1e-4)
+    loss_fn = nn.MSELoss()
     
     
     epochs = config.train.epochs
     is_conditional = config.train.is_conditional
+    lora_config = LoraConfig(
+        r=config.lora.rank,
+        lora_alpha=config.lora.alpha,
+        target_modules=config.lora.target_modules,
+        lora_dropout=config.lora.dropout,
+        init_lora_weights=True,
+    )
+    model = get_peft_model(model, lora_config)
+    model.print_trainable_parameters()
+
+    
     for epoch in range(epochs):
         model.train()
         pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Epoch [{epoch+1}/{epochs}]", leave=False)

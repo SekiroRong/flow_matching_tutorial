@@ -152,6 +152,30 @@ class SelfAttention(nn.Module):
         x = self.o(x)
         return x
 
+class CrossAttention(SelfAttention):
+
+    def forward(self, x, condition):
+        r"""
+        Args:
+            x(Tensor): Shape [B, L1, C]
+            context(Tensor): Shape [B, L2, C]
+            context_lens(Tensor): Shape [B]
+        """
+        b, n, d = x.size(0), self.num_heads, self.head_dim
+
+        # compute query, key, value
+        q = self.norm_q(self.q(x)).view(b, -1, n, d)
+        k = self.norm_k(self.k(condition)).view(b, -1, n, d)
+        v = self.v(condition).view(b, -1, n, d)
+
+        # compute attention
+        x = attention(q, k, v)
+
+        # output
+        x = x.flatten(2)
+        x = self.o(x)
+        return x
+
 class AttentionBlock(nn.Module):
 
     def __init__(self,
@@ -174,6 +198,9 @@ class AttentionBlock(nn.Module):
         self.self_attn = SelfAttention(dim, num_heads, window_size, qk_norm,
                                           eps)
         self.norm2 = LayerNorm(dim, eps)
+        self.cross_attn = CrossAttention(dim, num_heads, (-1, -1), qk_norm,
+                                          eps)
+        self.norm3 = nn.Identity()
         self.ffn = nn.Sequential(
             nn.Linear(dim, ffn_dim), nn.GELU(approximate='tanh'),
             nn.Linear(ffn_dim, dim))
@@ -187,6 +214,7 @@ class AttentionBlock(nn.Module):
         e,
         grid_sizes,
         freqs,
+        condition,
         # context,
         # context_lens,
     ):
@@ -208,13 +236,15 @@ class AttentionBlock(nn.Module):
             freqs)
         x = x + y * e[2]
 
-        # ffn function
-        def ffn(x, e):
+        # cross-attention & ffn function
+        def cross_attn_ffn(x, e):
+            if condition is not None:
+                x = x + self.cross_attn(self.norm3(x), condition)
             y = self.ffn(self.norm2(x).float() * (1 + e[4]) + e[3])
             x = x + y * e[5]
             return x
 
-        x = ffn(x, e)
+        x = cross_attn_ffn(x, e)
         return x
 
 class Head(nn.Module):
@@ -268,6 +298,8 @@ class Dummy_DiT(nn.Module):
         self.conv_in = nn.Conv2d(1, 16, kernel_size=3, padding=1)
         self.patch_embedding = nn.Conv2d(
             in_dim, dim, kernel_size=patch_size, stride=patch_size)
+        self.label_embedding = nn.Sequential(
+            nn.Linear(freq_dim, dim), nn.SiLU(), nn.Linear(dim, dim))
         self.time_embedding = nn.Sequential(
             nn.Linear(freq_dim, dim), nn.SiLU(), nn.Linear(dim, dim))
         self.time_projection = nn.Sequential(nn.SiLU(), nn.Linear(dim, dim * 6))
@@ -301,6 +333,10 @@ class Dummy_DiT(nn.Module):
         grid_sizes = torch.stack([torch.tensor(u.shape[1:], dtype=torch.long) for u in x])
         x = x.flatten(2).transpose(1, 2)
 
+        if y is not None:
+            y = self.label_embedding(
+            sinusoidal_embedding_1d(self.freq_dim, y).float()).unsqueeze(1)
+
         # time embeddings
         e = self.time_embedding(
             sinusoidal_embedding_1d(self.freq_dim, t).float())
@@ -310,7 +346,9 @@ class Dummy_DiT(nn.Module):
         kwargs = dict(
             e=e0,
             grid_sizes=grid_sizes,
-            freqs=self.freqs)
+            freqs=self.freqs,
+            condition=y,
+        )
 
         for block in self.blocks:
             x = block(x, **kwargs)
@@ -353,4 +391,5 @@ if __name__ == "__main__":
     dummy_model = Dummy_DiT()
     dummy_input = torch.zeros((2, 1, 28, 28))
     dummy_model(dummy_input, torch.tensor([0.5, 0.2]))
+    dummy_model(dummy_input, torch.tensor([0.5, 0.2]), torch.tensor([0, 1]))
         

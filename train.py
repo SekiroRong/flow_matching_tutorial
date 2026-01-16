@@ -54,7 +54,7 @@ def main():
         # velocity = model(latents, torch.tensor([t_start]).to(device), label)
         latents += velocity * (t_end - t_start)
         _latents = latents.clone().detach().squeeze()
-        _latents = (_latents * 255).to(torch.uint8)
+        _latents = (_latents.clamp(min=0, max=1) * 255).to(torch.uint8)
         img = Image.fromarray(_latents.cpu().numpy(), mode='L')
         img.save(f"outputs/{i}.png")
     

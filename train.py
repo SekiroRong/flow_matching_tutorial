@@ -1,21 +1,34 @@
 import torch
 from torch import nn
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from model import Dummy_DiT
 from datasets import train_loader, test_loader
 from tqdm import tqdm
 from PIL import Image
+import argparse
+from omegaconf import OmegaConf
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 model = Dummy_DiT()
 model.to(device)
 optimizer = torch.optim.Adam(model.parameters(), 1e-2)
+scheduler = CosineAnnealingLR(optimizer, T_max=10, eta_min=1e-4)
 loss_fn = nn.MSELoss()
 
 def main():
-    epochs = 1
-    model.train()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config_path", type=str, required=True)
+    args = parser.parse_args()
+
+    config = OmegaConf.load(args.config_path)
+    default_config = OmegaConf.load("configs/default_config.yaml")
+    config = OmegaConf.merge(default_config, config)
+    
+    
+    epochs = config.train.epochs
     for epoch in range(epochs):
+        model.train()
         pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Epoch [{epoch+1}/{epochs}]", leave=False)
         for i, (imgs, label) in pbar:
             imgs = imgs.to(device)
@@ -35,28 +48,28 @@ def main():
             pbar.set_postfix({
                 'loss': f'{loss.item():.4f}',
             })
+        scheduler.step()
+        torch.save(model.state_dict(), f"outputs/checkpoint_{epoch}.pth")
 
-    torch.save(model.state_dict(), "outputs/checkpoint.pth")
-
-    noises = torch.randn_like(imgs[0]).unsqueeze(0).to(device)
-    n_steps = 20
-    time_steps = torch.linspace(0, 1.0, n_steps + 1).to(device)
-    label = torch.tensor([0]).to(device)
+        noises = torch.randn_like(imgs[0]).unsqueeze(0).to(device)
+        n_steps = 20
+        time_steps = torch.linspace(0, 1.0, n_steps + 1).to(device)
+        label = torch.tensor([0]).to(device)
+        
+        latents = noises
     
-    latents = noises
-
-    model.eval()
-    for i in range(n_steps):
-        t_start=time_steps[i]
-        t_end=time_steps[i + 1]
-    
-        velocity = model(latents, torch.tensor([t_start]).to(device), label)
-        # velocity = model(latents, torch.tensor([t_start]).to(device), label)
-        latents += velocity * (t_end - t_start)
-        _latents = latents.clone().detach().squeeze()
-        _latents = (_latents.clamp(min=0, max=1) * 255).to(torch.uint8)
+        model.eval()
+        for i in range(n_steps):
+            t_start=time_steps[i]
+            t_end=time_steps[i + 1]
+        
+            velocity = model(latents, torch.tensor([t_start]).to(device), label)
+            # velocity = model(latents, torch.tensor([t_start]).to(device), label)
+            latents += velocity * (t_end - t_start)
+            _latents = latents.clone().detach().squeeze()
+            _latents = (_latents.clamp(min=0, max=1) * 255).to(torch.uint8)
         img = Image.fromarray(_latents.cpu().numpy(), mode='L')
-        img.save(f"outputs/{i}.png")
+        img.save(f"outputs/epoch_{epoch}.png")
     
 
 if __name__ == "__main__":

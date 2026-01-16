@@ -5,6 +5,7 @@ from model import Dummy_DiT
 from datasets import train_loader, test_loader
 from tqdm import tqdm
 from PIL import Image
+import os
 import argparse
 from omegaconf import OmegaConf
 
@@ -24,6 +25,9 @@ def main():
     config = OmegaConf.load(args.config_path)
     default_config = OmegaConf.load("configs/default_config.yaml")
     config = OmegaConf.merge(default_config, config)
+
+    os.makedirs("checkpoints", exist_ok=True)
+    os.makedirs("outputs", exist_ok=True)
     
     
     epochs = config.train.epochs
@@ -49,7 +53,7 @@ def main():
                 'loss': f'{loss.item():.4f}',
             })
         scheduler.step()
-        torch.save(model.state_dict(), f"outputs/checkpoint_{epoch}.pth")
+        torch.save(model.state_dict(), f"checkpoints/checkpoint_{epoch}.pth")
 
         noises = torch.randn_like(imgs[0]).unsqueeze(0).to(device)
         n_steps = 20

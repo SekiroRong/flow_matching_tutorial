@@ -19,7 +19,7 @@ loss_fn = nn.MSELoss()
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config_path", type=str, required=True)
+    parser.add_argument("--config_path", type=str, default="configs/default_config.yaml", required=True)
     args = parser.parse_args()
 
     config = OmegaConf.load(args.config_path)
@@ -31,6 +31,7 @@ def main():
     
     
     epochs = config.train.epochs
+    is_conditional = config.train.is_conditional
     for epoch in range(epochs):
         model.train()
         pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Epoch [{epoch+1}/{epochs}]", leave=False)
@@ -45,6 +46,8 @@ def main():
             velocities = imgs - noises
             
             optimizer.zero_grad()
+            if not is_conditional:
+                label = None
             loss = loss_fn(model(latents, t, label), velocities)
             loss.backward()
             optimizer.step()
@@ -66,6 +69,8 @@ def main():
         for i in range(n_steps):
             t_start=time_steps[i]
             t_end=time_steps[i + 1]
+            if not is_conditional:
+                label = None
         
             velocity = model(latents, torch.tensor([t_start]).to(device), label)
             # velocity = model(latents, torch.tensor([t_start]).to(device), label)

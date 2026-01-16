@@ -8,7 +8,8 @@ from PIL import Image
 import os
 import argparse
 from omegaconf import OmegaConf
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig, get_peft_model, get_peft_model_state_dict
+from safetensors.torch import load_file, save_file
 
 def main():
     parser = argparse.ArgumentParser()
@@ -42,6 +43,13 @@ def main():
     )
     model = get_peft_model(model, lora_config)
     model.print_trainable_parameters()
+
+    state_dict = get_peft_model_state_dict(model)
+    for key in state_dict.keys():
+        print(key)
+
+    save_file(state_dict, "checkpoints/lora.pth")
+    
 
     
     for epoch in range(epochs):

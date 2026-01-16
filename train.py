@@ -51,6 +51,7 @@ def main():
         t_end=time_steps[i + 1]
     
         velocity = model(latents, torch.tensor([t_start]).to(device), label)
+        # velocity = model(latents, torch.tensor([t_start]).to(device), label)
         latents += velocity * (t_end - t_start)
         _latents = latents.clone().detach().squeeze()
         _latents = (_latents * 255).to(torch.uint8)

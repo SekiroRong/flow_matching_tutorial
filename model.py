@@ -327,19 +327,21 @@ class Dummy_DiT(nn.Module):
         t,
         y=None,
     ):
+        device = self.patch_embedding.weight.device
+        self.freqs = self.freqs.to(device)
         # turn input_image into tokens [bs, C, H, W] -> [bs, dim, H, W]
         x = self.conv_in(x)
         x = self.patch_embedding(x)
         grid_sizes = torch.stack([torch.tensor(u.shape[1:], dtype=torch.long) for u in x])
         x = x.flatten(2).transpose(1, 2)
 
-        if y is not None:
-            y = self.label_embedding(
-            sinusoidal_embedding_1d(self.freq_dim, y).float()).unsqueeze(1)
-
         # time embeddings
         e = self.time_embedding(
             sinusoidal_embedding_1d(self.freq_dim, t).float())
+        if y is not None:
+            y = self.label_embedding(
+            sinusoidal_embedding_1d(self.freq_dim, y).float())
+            e += y
         e0 = self.time_projection(e).unflatten(1, (6, self.dim))
         assert e.dtype == torch.float32 and e0.dtype == torch.float32
 
@@ -347,7 +349,7 @@ class Dummy_DiT(nn.Module):
             e=e0,
             grid_sizes=grid_sizes,
             freqs=self.freqs,
-            condition=y,
+            condition=None,
         )
 
         for block in self.blocks:

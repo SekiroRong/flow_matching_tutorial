@@ -13,9 +13,9 @@ model.to(device)
 
 def main():
     noises = torch.randn((1, 28, 28)).unsqueeze(0).to(device)
-    n_steps = 50
+    n_steps = 100
     time_steps = torch.linspace(0, 1.0, n_steps + 1).to(device)
-    label = torch.tensor([0]).to(device)
+    label = torch.tensor([2]).to(device)
     latents = noises
 
     model.eval()
@@ -23,7 +23,7 @@ def main():
         t_start=time_steps[i]
         t_end=time_steps[i + 1]
     
-        velocity = model(latents, torch.tensor([t_start], label).to(device))
+        velocity = model(latents, torch.tensor([t_start]).to(device), label)
         latents += velocity * (t_end - t_start)
         _latents = latents.clone().detach().squeeze()
         _latents = (_latents * 255).to(torch.uint8)

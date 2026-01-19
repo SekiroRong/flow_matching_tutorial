@@ -3,6 +3,7 @@ from torch import nn
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from model import Dummy_DiT
 from datasets import train_loader, test_loader
+from scheduler import Scheduler_Wrapper
 from tqdm import tqdm
 from PIL import Image
 import os
@@ -34,7 +35,7 @@ def main():
     
     epochs = config.train.epochs
     is_conditional = config.train.is_conditional
-    sampler_scheduler = config.scheduler.type
+    sampler_scheduler = Scheduler_Wrapper(config.sampler_scheduler.type, shift=3.0)
     guide_scale = config.sampler.guide_scale
     cfg = True if guide_scale > 1.0 else False 
 
@@ -68,16 +69,16 @@ def main():
             imgs = imgs.to(device)
             label = label.to(device)
             noises = torch.randn_like(imgs).to(device)
-            t = torch.rand(imgs.size(0)).to(device)
-            _t = t[:, None, None, None]
+            sigma = sampler_scheduler.scheduler.sigmas[torch.randint(0, len(sampler_scheduler.scheduler.sigmas), size=(imgs.size(0),))].to(device)
+            _sigma = sigma[:, None, None, None]
             
-            latents = (1 - _t) * noises + _t * imgs
+            latents = (1 - _sigma) * noises + _sigma * imgs
             velocities = imgs - noises
             
             optimizer.zero_grad()
             if not is_conditional:
                 label = None
-            loss = loss_fn(model(latents, t, label), velocities)
+            loss = loss_fn(model(latents, sigma, label), velocities)
             loss.backward()
             optimizer.step()
 
@@ -89,25 +90,26 @@ def main():
 
         noises = torch.randn_like(imgs[0]).unsqueeze(0).to(device)
         n_steps = 20
-        time_steps = torch.linspace(0, 1.0, n_steps + 1).to(device)
+        time_steps = torch.linspace(0, 1000, n_steps).to(device)
+        sigmas = sampler_scheduler.scheduler.sigmas.to(device)
         label = torch.tensor([0]).to(device)
         
         latents = noises
     
         model.eval()
         for i in range(n_steps):
-            t_start=time_steps[i]
-            t_end=time_steps[i + 1]
+            t_start=int(time_steps[i])
+            sigma_start = sigmas[t_start]
             if not is_conditional:
                 label = None
         
-            velocity = model(latents, torch.tensor([t_start]).to(device), label)
+            velocity = model(latents, torch.tensor([sigma_start]).to(device), label)
             if cfg:
-                negcon_velocity = model(latents, torch.tensor([t_start]).to(device), (label+1)%10)
+                negcon_velocity = model(latents, torch.tensor([sigma_start]).to(device), (label+1)%10)
                 velocity = negcon_velocity + guide_scale * (
                     velocity - negcon_velocity)
                 
-            latents += velocity * (t_end - t_start)
+            latents = sampler_scheduler.scheduler.step(latents, velocity, t_start)
             _latents = latents.clone().detach().squeeze()
             _latents = (_latents.clamp(min=0, max=1) * 255).to(torch.uint8)
         img = Image.fromarray(_latents.cpu().numpy(), mode='L')

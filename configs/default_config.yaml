@@ -13,6 +13,8 @@ lora:
     - "v"
     - "o"
 
-sampler:
+scheduler:
   type: "euler"
+
+sampler:
   guide_scale: 1.0

@@ -34,7 +34,7 @@ def main():
     
     epochs = config.train.epochs
     is_conditional = config.train.is_conditional
-    sampler = config.sampler.type
+    scheduler = config.scheduler.type
     guide_scale = config.sampler.guide_scale
     cfg = True if guide_scale > 1.0 else False 
 

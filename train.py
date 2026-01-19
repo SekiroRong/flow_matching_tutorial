@@ -8,7 +8,7 @@ from PIL import Image
 import os
 import argparse
 from omegaconf import OmegaConf
-from peft import LoraConfig, get_peft_model, get_peft_model_state_dict
+from peft import LoraConfig, get_peft_model, get_peft_model_state_dict, set_peft_model_state_dict
 from safetensors.torch import load_file, save_file
 
 def main():
@@ -34,21 +34,30 @@ def main():
     
     epochs = config.train.epochs
     is_conditional = config.train.is_conditional
-    lora_config = LoraConfig(
-        r=config.lora.rank,
-        lora_alpha=config.lora.alpha,
-        target_modules=config.lora.target_modules,
-        lora_dropout=config.lora.dropout,
-        init_lora_weights=True,
-    )
-    model = get_peft_model(model, lora_config)
-    model.print_trainable_parameters()
+    sampler = config.sampler.type
+    guide_scale = config.sampler.guide_scale
+    cfg = True if guide_scale > 1.0 else False 
 
-    state_dict = get_peft_model_state_dict(model)
-    for key in state_dict.keys():
-        print(key)
-
-    save_file(state_dict, "checkpoints/lora.pth")
+    if config.lora.enable:
+        lora_config = LoraConfig(
+            r=config.lora.rank,
+            lora_alpha=config.lora.alpha,
+            target_modules=config.lora.target_modules,
+            lora_dropout=config.lora.dropout,
+            init_lora_weights=True,
+        )
+        model = get_peft_model(model, lora_config)
+        model.print_trainable_parameters()
+    
+        state_dict = get_peft_model_state_dict(model)
+        for key in state_dict.keys():
+            print(key)
+    
+        save_file(state_dict, "checkpoints/lora.pth")
+    
+        state_dict = load_file("checkpoints/lora.pth")
+        base_model = model.get_base_model()
+        set_peft_model_state_dict(base_model, state_dict)
     
 
     
@@ -93,7 +102,11 @@ def main():
                 label = None
         
             velocity = model(latents, torch.tensor([t_start]).to(device), label)
-            # velocity = model(latents, torch.tensor([t_start]).to(device), label)
+            if cfg:
+                negcon_velocity = model(latents, torch.tensor([t_start]).to(device), (label+1)%10)
+                velocity = negcon_velocity + guide_scale * (
+                    velocity - negcon_velocity)
+                
             latents += velocity * (t_end - t_start)
             _latents = latents.clone().detach().squeeze()
             _latents = (_latents.clamp(min=0, max=1) * 255).to(torch.uint8)

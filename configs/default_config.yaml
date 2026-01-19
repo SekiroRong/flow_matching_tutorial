@@ -3,6 +3,7 @@ train:
   is_conditional: True
 
 lora:
+  enable: False
   rank: 16
   alpha: 16
   dropout: 0.0
@@ -11,3 +12,7 @@ lora:
     - "k"
     - "v"
     - "o"
+
+sampler:
+  type: "euler"
+  guide_scale: 1.0

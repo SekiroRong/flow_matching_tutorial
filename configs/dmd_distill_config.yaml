@@ -1,0 +1,12 @@
+train:
+  epochs: 1
+  is_conditional: True
+  dfake_gen_update_ratio: 5
+  batch_size: 1
+  log_iters: 1
+
+sampler_scheduler:
+  type: "euler"
+
+sampler:
+  guide_scale: 1.0

@@ -3,32 +3,31 @@ import torch
 from model import Dummy_DiT
 
 class Trainer(nn.Module):
-    def __init__(self, sampler_scheduler):
+    def __init__(self, config, sampler_scheduler):
         super().__init__()
         self.step = 0
-        self._initialize_models(sampler_scheduler)
+        self.dfake_gen_update_ratio = config.train.dfake_gen_update_ratio
+        self.batch_size = config.train.batch_size
+        self.log_iters = config.train.log_iters
+        self.sampler_scheduler = sampler_scheduler
+        self._initialize_models()
         self.denoising_loss_func = nn.MSELoss()
 
-    def _initialize_models(self, sampler_scheduler):
+    def _initialize_models(self, ):
         self.generator = Dummy_DiT()
         self.real_score = Dummy_DiT()
         self.fake_score = Dummy_DiT()
-        self.sampler_scheduler = sampler_scheduler
 
-        self.generator_optimizer = torch.optim.AdamW(
+        self.generator_optimizer = torch.optim.Adam(
             [param for param in self.generator.parameters()
              if param.requires_grad],
-            lr=config.lr,
-            betas=(config.beta1, config.beta2),
-            weight_decay=config.weight_decay
+            lr=1e-2,
         )
 
         self.critic_optimizer = torch.optim.AdamW(
             [param for param in self.fake_score.parameters()
              if param.requires_grad],
-            lr=config.lr_critic if hasattr(config, "lr_critic") else config.lr,
-            betas=(config.beta1_critic, config.beta2_critic),
-            weight_decay=config.weight_decay
+            lr=1e-2,
         )
 
     def _run_generator(
@@ -143,7 +142,7 @@ class Trainer(nn.Module):
         denoising_loss = self.denoising_loss_func(self.fake_score(latents, torch.tensor([sigma_start]).to(device), label), velocities)
         return denoising_loss
 
-    def fwdbwd_one_step(self, batch_size, train_generator):
+    def fwdbwd_one_step(self, train_generator):
         if train_generator:
             generator_loss = self.generator_loss(batch_size=batch_size, n_steps=4)
             generator_loss.backward()
@@ -155,25 +154,18 @@ class Trainer(nn.Module):
         start_step = self.step
 
         while True:
-            TRAIN_GENERATOR = self.step % self.config.dfake_gen_update_ratio == 0
+            TRAIN_GENERATOR = self.step % self.dfake_gen_update_ratio == 0
 
             # Train the generator
             if TRAIN_GENERATOR:
                 self.generator_optimizer.zero_grad(set_to_none=True)
                 extras_list = []
-                batch = next(self.dataloader)
-                extra = self.fwdbwd_one_step(batch, True)
-                extras_list.append(extra)
-                generator_log_dict = merge_dict_list(extras_list)
+                self.fwdbwd_one_step(True)
                 self.generator_optimizer.step()
 
             # Train the critic
             self.critic_optimizer.zero_grad(set_to_none=True)
-            extras_list = []
-            batch = next(self.dataloader)
-            extra = self.fwdbwd_one_step(batch, False)
-            extras_list.append(extra)
-            critic_log_dict = merge_dict_list(extras_list)
+            extra = self.fwdbwd_one_step(False)
             self.critic_optimizer.step()
 
             # Increment the step since we finished gradient update
@@ -181,9 +173,9 @@ class Trainer(nn.Module):
 
 
             # Save the model
-            if (not self.config.no_save) and (self.step - start_step) > 0 and self.step % self.config.log_iters == 0:
+            if (self.step - start_step) > 0 and self.step % self.log_iters == 0:
                 torch.cuda.empty_cache()
-                self.save()
+                torch.save(self.generator.state_dict(), f"checkpoints/checkpoint_{self.step}.pth")
                 torch.cuda.empty_cache()
         
         

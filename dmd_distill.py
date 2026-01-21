@@ -33,7 +33,7 @@ def main():
     guide_scale = config.sampler.guide_scale
     cfg = True if guide_scale > 1.0 else False 
 
-    trainer = Trainer(config, sampler_scheduler)
+    trainer = Trainer(config, sampler_scheduler, device)
     trainer.train()
 
     

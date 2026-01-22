@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import math
+from attention import attention, flex_attention_wrapper
 
 def sinusoidal_embedding_1d(dim, position):
     # preprocess
@@ -80,23 +81,7 @@ class RMSNorm(nn.Module):
 
     def _norm(self, x):
         return x * torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
-
-def attention(q,
-            k,
-            v,
-            causal=False,
-            dropout_p=0.,
-            dtype=torch.float32,
-             ):
-    q = q.transpose(1, 2).to(dtype)
-    k = k.transpose(1, 2).to(dtype)
-    v = v.transpose(1, 2).to(dtype)
-
-    out = torch.nn.functional.scaled_dot_product_attention(
-        q, k, v, attn_mask=None, is_causal=causal, dropout_p=dropout_p)
-
-    out = out.transpose(1, 2).contiguous()
-    return out
+        
 
 class SelfAttention(nn.Module):
     def __init__(self,
@@ -141,7 +126,7 @@ class SelfAttention(nn.Module):
 
         q, k, v = qkv_fn(x)
 
-        x = attention(
+        x = flex_attention_wrapper(
             q=rope_apply(q, grid_sizes, freqs),
             k=rope_apply(k, grid_sizes, freqs),
             v=v,
